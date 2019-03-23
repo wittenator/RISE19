@@ -1,0 +1,1 @@
+sudo docker run -p 8887:8888 -e JUPYTER_ENABLE_LAB=yes -v "$PWD":/home/jovyan/work jupyter/tensorflow-notebook:latest
