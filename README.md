@@ -3,7 +3,7 @@ This is the repository for the prospective project on which I am going to work d
 
 ### Prerequisites
 
-You will need [Docker](https://docs.docker.com/install/) installed in order to run the notebook. 
+You will need to have [Docker](https://docs.docker.com/install/) installed in order to run the notebook. 
 
 
 ### Installing
