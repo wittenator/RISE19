@@ -1,0 +1,15 @@
+version: '2.3'
+
+services:
+  tensorflow:
+    build:
+      context: .
+      dockerfile: Dockerfile_cpu
+    restart: always
+    ports:
+      - 8888:8888
+    volumes: 
+      - $PWD:/tf
+    user: ${CURRENT_UID}
+    environment:
+      - JUPYTER_ENABLE_LAB=yes

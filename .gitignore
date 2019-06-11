@@ -43,4 +43,4 @@ package-lock.json
 geckodriver.log
 
 #custom
-/data
+/data/Sample*

@@ -1,0 +1,9 @@
+version: '2.3'
+
+services:
+  tensorflow:
+    build:
+      context: .
+      dockerfile: Dockerfile_gpu
+    restart: always
+    runtime: nvidia
