@@ -5,9 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile_cpu
-    restart: always
     ports:
-      - 8888:8888
+      - 80:8888
     volumes: 
       - $PWD:/tf
     user: ${CURRENT_UID}
