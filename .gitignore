@@ -45,3 +45,4 @@ geckodriver.log
 #custom
 /data/Data_processed/
 /data/Data_raw
+*.png

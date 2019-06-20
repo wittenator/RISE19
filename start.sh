@@ -96,9 +96,30 @@ parse_commandline "$@"
 
 if [ "$_arg_gpu" = on ];
 then
-    CURRENT_UID=$(id -u):$(id -g) docker-compose -f docker-compose.cpu.yaml -f docker-compose.gpu.yaml up --build
+    CURRENT_UID=$(id -u):$(id -g) docker-compose -f docker-compose.cpu.yaml -f docker-compose.gpu.yaml up --build -d
 else
-    CURRENT_UID=$(id -u):$(id -g) docker-compose -f docker-compose.cpu.yaml up --build
+    CURRENT_UID=$(id -u):$(id -g) docker-compose -f docker-compose.cpu.yaml up --build -d
 fi
+
+until docker logs $(docker ps -q --filter ancestor=rise19_tensorflow) 2>&1 | grep -m 1 "127.0.0.1"; do sleep 1 ; done
+token=$(docker logs $(docker ps -q --filter ancestor=rise19_tensorflow) 2>&1 | grep '127.0.0.1' | grep -m 1 -oP 'token=\K(.*)')
+
+firefox http://localhost/?token=$token
+
+finish()
+{
+    if [ "$_arg_gpu" = on ];
+	then
+	    CURRENT_UID=$(id -u):$(id -g)  docker-compose -f docker-compose.cpu.yaml -f docker-compose.gpu.yaml stop
+	else
+	    CURRENT_UID=$(id -u):$(id -g)  docker-compose -f docker-compose.cpu.yaml stop
+	fi 
+    exit
+}
+trap finish SIGINT
+
+while :; do
+    sleep 5
+done
 
 # ] <-- needed because of Argbash

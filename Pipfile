@@ -9,7 +9,6 @@ verify_ssl = true
 keras = "*"
 opencv-python = "*"
 pillow = "*"
-gzip = "*"
 
 [requires]
 python_version = "3.6"
