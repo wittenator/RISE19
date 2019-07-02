@@ -16,10 +16,11 @@ from itertools import tee, islice
 from pickle import dump
 from glob import glob
 from random import shuffle
-import numpy
+import numpy as np
 from numpy import *
 from numpy import linalg
 from numpy.random import RandomState
+import h5py
 
 
 #timing
@@ -36,10 +37,6 @@ data="/home/tim/Documents/RISE19/data/Train"
 store_result = True
 bg_remove = False
 norm_gray = True
-
-show_gray = False
-show_depth = False
-show_user = False
 
 vid_res = (480, 640)  # 640 x 480 video resolution
 vid_shape_hand = (128, 128)
@@ -74,54 +71,63 @@ def main():
 
 
 def preprocess(samples, set_label="training"):
-    for file_count, file in enumerate(sort(samples)):
-        if (set_label == "training"):
-            condition = (file_count < 650)
+    #calculate size of needed arrays
+    frame_count = 0
+    gesture_count = 0
+    for file in sort(samples):
+        sample = GestureSample(os.path.join(data, file))
+        gestures = sample.getGestures()
+        gesture_count += len(gestures)
+        # Iterate for each action in this sample
+        for gesture in gestures:
+            frame_count += len(gesture)
+
+    with h5py.File("./dataset.hdf5", "a") as f:
+        grp = f.create_group(set_label)
+        dst_range = grp.create_dataset("range", (gesture_count,2), compression="lzf", dtype="i")
+        dst_video = grp.create_dataset("video", (2, 2, frame_count, 5, 128, 128), compression="lzf")
+        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 11, 9), compression="lzf")
+        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression="lzf")
+        dst_label = grp.create_dataset("label", (gesture_count,), compression="lzf")
+
+        frame_count = 0
+        gesture_count = 0
+        print(dst_video)
+        for file_count, file in enumerate(sort(samples)):
             dest =r"/home/tim/Documents/RISE19/data/Data_processed/Train"
-
-
-        else:
-            condition = (file_count >= 650)
-            dest=r"/home/tim/Documents/RISE19/data/Data_processed/valid"
-                
-
-        #set == "training" ? (condition = (file_count<650)) : (condition = (file_count>=650))
-        if condition:  #wudi only used first 650 for validation !!! Lio be careful!
+                    
             print(("\t Processing file " + file))
             start_time = time.time()
+
             # Create the object to access the sample
             sample = GestureSample(os.path.join(data, file))
-            # ###############################################
-            # USE Ground Truth information to learn the model
-            # ###############################################
-            # Get the list of actions for this frame
             gestures = sample.getGestures()
+
             # Iterate for each action in this sample
             for gesture in gestures:
                 skelet, depth, gray, user, c = sample.get_data_wudi(gesture, vid_res, NEUTRUAL_SEG_LENGTH)
+                
+                
+                skeleton = np.array([[np.concatenate(x.getAllData()[joint]) for joint in used_joints] for x in skelet])
                 if c: print('corrupt'); continue
-
+                
                 # preprocess
                 # skelet_feature: frames * num_features? here gestures because we need netural frames
                 skelet_feature, Targets, c = proc_skelet_wudi(sample, used_joints, gesture, STATE_NO,
                                                               NEUTRUAL_SEG_LENGTH)
                 if c: print('corrupt'); continue
+                
                 user_o = user.copy()
                 user = proc_user(user)
-                skelet, c = proc_skelet(skelet)
-                # depth: 2(h&b) * frames * 5 (stacked frames) * vid_shape_hand[0] *vid_shape_hand[1]
-                user_new, depth, c = proc_depth_wudi(depth, user, user_o, skelet, NEUTRUAL_SEG_LENGTH)
+                skelet_proc, c = proc_skelet(skelet)
+                user_new, depth, c = proc_depth_wudi(depth, user, user_o, skelet_proc, NEUTRUAL_SEG_LENGTH)
                 if c: print('corrupt'); continue
-                # gray:  2(h&b) * frames * 5 (stacked frames) * vid_shape_hand[0] *vid_shape_hand[1]
-                gray, c = proc_gray_wudi(gray, user, skelet, NEUTRUAL_SEG_LENGTH)
+                gray, c = proc_gray_wudi(gray, user, skelet_proc, NEUTRUAL_SEG_LENGTH)
                 if c: print('corrupt'); continue
 
-                if show_depth: play_vid_wudi(depth, Targets, wait=1000 / 10, norm=False)
-                if show_gray: play_vid_wudi(gray, Targets, wait=1000 / 10, norm=False)
-                if show_user: play_vid_wudi(user_new, Targets, wait=1000 / 10, norm=False)
-                # user_new = user_new.astype("bool")
-                traj2D, traj3D, ori, pheight, hand, center = skelet
-                skelet = traj3D, ori, pheight
+                traj2D, traj3D, ori, pheight, hand, center = skelet_proc
+                skelet_proc = traj3D, ori, pheight
+                
 
                 assert user.dtype == gray.dtype == depth.dtype == traj3D.dtype == ori.dtype == "uint8"
                 assert gray.shape == depth.shape
@@ -132,19 +138,17 @@ def preprocess(samples, set_label="training"):
                 # we don't need user info. anyway
                 video = empty((2,) + gray.shape, dtype="uint8")
                 video[0], video[1] = gray, depth
-                store_preproc_wudi(video, skelet_feature, Targets.argmax(axis=1), skelet, dest)
-
-
+                write_to_dataset(dst_range, np.array([[dst_range.shape[0], dst_range.shape[0]+1]]), gesture_count)
+                write_to_dataset(dst_skeleton, skeleton, frame_count)
+                write_to_dataset(dst_skeleton_feature, skelet_feature, frame_count)
+                write_to_dataset(dst_video, video, frame_count, axis=2)
+                write_to_dataset(dst_label, np.array(Targets.argmax(axis=1)), gesture_count)
+                print(dst_video)
+                gesture_count += 1
+                frame_count += len(gesture)
+                
             end_time = time.time()
-
-
-            print("Processing one batch requires: %d second\n"% ( end_time - start_time))         
-            if condition and file_count==(len(samples)-1):
-                dump_last_data(video,skelet_feature, Targets.argmax(axis=1), skelet, dest)
-
-            # we should add the traning data as well
-            if not condition and file_count == 650-1:
-                dump_last_data(video,skelet_feature, Targets.argmax(axis=1), skelet, dest)
+            print(dst_skeleton_feature)
 
 
 
@@ -152,55 +156,8 @@ def preprocess(samples, set_label="training"):
 
 
 
-def store_preproc_wudi(video, skelet, label, skelet_info, dest):
-    """
-    Wudi modified how to- store the result
-    original code is a bit hard to understand
-    """
-    global v, s, l, sk, count, batch_idx
-    if len(v) == 0:
-        v = video
-        s = skelet
-        l = label
-        sk = []
-        sk.append(skelet_info)
-    else:
-        v = numpy.concatenate((v, video), axis=2)
-        s = numpy.concatenate((s, skelet), axis=0)
-        l = numpy.concatenate((l, label))
-        sk.append(skelet_info)
-
-    if len(l) > 1000:
-        make_sure_path_exists(dest)
-        os.chdir(dest)
-        file_name = "batch_" + "_" + str(batch_idx) + "_" + str(len(l)) + ".zip"
-        if store_result:
-            file = gzip.GzipFile(file_name, 'wb')
-            dump((v, s, l, sk), file, -1)
-            file.close()
-
-        print(file_name)
-        batch_idx += 1
-        count = 1
-        v, s, l, sk = [], [], [], []
-
-    count += 1
-
-
-def dump_last_data(video, skelet, label, skelet_info, dest):
-    global v, s, l, sk, count, batch_idx
-    v = numpy.concatenate((v, video), axis=2)
-    s = numpy.concatenate((s, skelet), axis=0)
-    l = numpy.concatenate((l, label))
-    sk.append(skelet_info)
-    os.chdir(dest)
-    file_name = "batch_" + "_" + str(batch_idx) + "_" + str(len(l)) + ".zip"
-    if store_result:
-        file = gzip.GzipFile(file_name, 'wb')
-        dump((v, s, l, sk), file, -1)
-        file.close()
-
-    print(file_name)
+def write_to_dataset(dataset, data, pos, axis=0):
+    dataset[tuple(slice(None) if not i == axis else slice(data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ import csv
 from PIL import Image, ImageDraw
 from cv2 import resize as imresize
 import numpy
-from data.functions.preproc_functions import *
+from functions.preproc_functions import *
 from scipy import misc
 
 class Skeleton(object):

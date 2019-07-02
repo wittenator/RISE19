@@ -43,6 +43,7 @@ package-lock.json
 geckodriver.log
 
 #custom
+/data/Train/
+/data/Validation/
 /data/Data_processed/
-/data/Data_raw
 *.png
