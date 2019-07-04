@@ -54,7 +54,7 @@ count = 1
 
 # Then we  choose 8 frame before and after the ground true data:
 # in effect it only generate 4 frames because acceleration requires 5 frames
-NEUTRUAL_SEG_LENGTH = 8
+NEUTRUAL_SEG_LENGTH = 4
 # number of hidden states for each gesture class
 STATE_NO = 5
 
@@ -79,8 +79,7 @@ def preprocess(samples, set_label="training"):
         gestures = sample.getGestures()
         gesture_count += len(gestures)
         # Iterate for each action in this sample
-        for gesture in gestures:
-            frame_count += len(gesture)
+        frame_count += sample.getNumFrames()
 
     with h5py.File("./dataset.hdf5", "a") as f:
         grp = f.create_group(set_label)
@@ -106,7 +105,6 @@ def preprocess(samples, set_label="training"):
             # Iterate for each action in this sample
             for gesture in gestures:
                 skelet, depth, gray, user, c = sample.get_data_wudi(gesture, vid_res, NEUTRUAL_SEG_LENGTH)
-                
                 
                 skeleton = np.array([[np.concatenate(x.getAllData()[joint]) for joint in used_joints] for x in skelet])
                 if c: print('corrupt'); continue
@@ -138,17 +136,18 @@ def preprocess(samples, set_label="training"):
                 # we don't need user info. anyway
                 video = empty((2,) + gray.shape, dtype="uint8")
                 video[0], video[1] = gray, depth
+
+                print(skelet_feature.shape[0], skeleton.shape[0])
+
                 write_to_dataset(dst_range, np.array([[dst_range.shape[0], dst_range.shape[0]+1]]), gesture_count)
                 write_to_dataset(dst_skeleton, skeleton, frame_count)
                 write_to_dataset(dst_skeleton_feature, skelet_feature, frame_count)
                 write_to_dataset(dst_video, video, frame_count, axis=2)
                 write_to_dataset(dst_label, np.array(Targets.argmax(axis=1)), gesture_count)
-                print(dst_video)
                 gesture_count += 1
-                frame_count += len(gesture)
+                frame_count += skelet_feature.shape[0]
                 
             end_time = time.time()
-            print(dst_skeleton_feature)
 
 
 
@@ -157,7 +156,9 @@ def preprocess(samples, set_label="training"):
 
 
 def write_to_dataset(dataset, data, pos, axis=0):
-    dataset[tuple(slice(None) if not i == axis else slice(data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
+    print(pos, pos + data.shape[axis])
+    assert np.count_nonzero(dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))]) == 0
+    dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
 
 
 if __name__ == '__main__':
