@@ -21,6 +21,8 @@ from numpy import *
 from numpy import linalg
 from numpy.random import RandomState
 import h5py
+from multiprocessing import Pool, cpu_count
+
 
 
 #timing
@@ -56,7 +58,7 @@ count = 1
 # in effect it only generate 4 frames because acceleration requires 5 frames
 NEUTRUAL_SEG_LENGTH = 4
 # number of hidden states for each gesture class
-STATE_NO = 5
+STATE_NO = 6
 
 
 def main():
@@ -83,11 +85,11 @@ def preprocess(samples, set_label="training"):
 
     with h5py.File("./dataset.hdf5", "a") as f:
         grp = f.create_group(set_label)
-        dst_range = grp.create_dataset("range", (gesture_count,2), compression="lzf", dtype="i")
-        dst_video = grp.create_dataset("video", (2, 2, frame_count, 5, 128, 128), compression="lzf")
-        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 11, 9), compression="lzf")
-        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression="lzf")
-        dst_label = grp.create_dataset("label", (gesture_count,), compression="lzf")
+        dst_range = grp.create_dataset("range", (gesture_count,2), compression="szip", dtype="i", chunks=True, shuffle=True, compression_opts=('nn', 20))
+        dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
+        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
+        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
+        dst_label = grp.create_dataset("label", (gesture_count,), compression="szip", chunks=True, shuffle=True,compression_opts=('nn', 20))
 
         frame_count = 0
         gesture_count = 0
@@ -102,63 +104,74 @@ def preprocess(samples, set_label="training"):
             sample = GestureSample(os.path.join(data, file))
             gestures = sample.getGestures()
 
+
             # Iterate for each action in this sample
-            for gesture in gestures:
-                skelet, depth, gray, user, c = sample.get_data_wudi(gesture, vid_res, NEUTRUAL_SEG_LENGTH)
-                
-                skeleton = np.array([[np.concatenate(x.getAllData()[joint]) for joint in used_joints] for x in skelet])
-                if c: print('corrupt'); continue
-                
-                # preprocess
-                # skelet_feature: frames * num_features? here gestures because we need netural frames
-                skelet_feature, Targets, c = proc_skelet_wudi(sample, used_joints, gesture, STATE_NO,
-                                                              NEUTRUAL_SEG_LENGTH)
-                if c: print('corrupt'); continue
-                
-                user_o = user.copy()
-                user = proc_user(user)
-                skelet_proc, c = proc_skelet(skelet)
-                user_new, depth, c = proc_depth_wudi(depth, user, user_o, skelet_proc, NEUTRUAL_SEG_LENGTH)
-                if c: print('corrupt'); continue
-                gray, c = proc_gray_wudi(gray, user, skelet_proc, NEUTRUAL_SEG_LENGTH)
-                if c: print('corrupt'); continue
-
-                traj2D, traj3D, ori, pheight, hand, center = skelet_proc
-                skelet_proc = traj3D, ori, pheight
-                
-
-                assert user.dtype == gray.dtype == depth.dtype == traj3D.dtype == ori.dtype == "uint8"
-                assert gray.shape == depth.shape
-                if not gray.shape[1] == skelet_feature.shape[0] == Targets.shape[0]:
-                    print("too early movement or too late,skip one");
-                    continue
-
-                # we don't need user info. anyway
-                video = empty((2,) + gray.shape, dtype="uint8")
-                video[0], video[1] = gray, depth
-
-                print(skelet_feature.shape[0], skeleton.shape[0])
-
-                write_to_dataset(dst_range, np.array([[dst_range.shape[0], dst_range.shape[0]+1]]), gesture_count)
-                write_to_dataset(dst_skeleton, skeleton, frame_count)
-                write_to_dataset(dst_skeleton_feature, skelet_feature, frame_count)
-                write_to_dataset(dst_video, video, frame_count, axis=2)
-                write_to_dataset(dst_label, np.array(Targets.argmax(axis=1)), gesture_count)
-                gesture_count += 1
-                frame_count += skelet_feature.shape[0]
-                
+            with Pool(cpu_count()) as p:
+                results = [x for x in p.starmap(computeData, ((gesture, os.path.join(data, file)) for gesture in gestures)) if x is not None]
+            print(len(list(zip(*results))))
+            print(len([np.concatenate(x) for x in zip(*results)]))
+            range, skeleton, skelet_feature, video, labels = [np.concatenate(x) for x in zip(*results)]
+            print(labels)
+            write_to_dataset(dst_range, range+frame_count, gesture_count)
+            write_to_dataset(dst_skeleton, skeleton, frame_count)
+            write_to_dataset(dst_skeleton_feature, skelet_feature, frame_count)
+            write_to_dataset(dst_video, video, frame_count)
+            write_to_dataset(dst_label, labels, frame_count)
+            gesture_count += labels.shape[0]
+            frame_count += skeleton.shape[0]
+            
             end_time = time.time()
 
 
 
 
 
+def computeData(gesture, path):
+    sample = GestureSample(path)
+    skelet, depth, gray, user, c = sample.get_data_wudi(gesture, vid_res, NEUTRUAL_SEG_LENGTH)
+    if c: print('corrupt'); return None
+    
+    # preprocess
+    # skelet_feature: frames * num_features? here gestures because we need netural frames
+    skelet_feature, Targets, c = proc_skelet_wudi(sample, used_joints, gesture, STATE_NO,
+                                                  NEUTRUAL_SEG_LENGTH)
+    if c: print('corrupt'); return None
+    
+    user_o = user.copy()
+    user = proc_user(user)
+    skelet_proc, c = proc_skelet(skelet)
+    user_new, depth, c = proc_depth_wudi(depth, user, user_o, skelet_proc, NEUTRUAL_SEG_LENGTH)
+    if c: print('corrupt'); return None
+    gray, c = proc_gray_wudi(gray, user, skelet_proc, NEUTRUAL_SEG_LENGTH)
+    if c: print('corrupt'); return None
 
+    traj2D, traj3D, ori, pheight, hand, center = skelet_proc
+    skelet_proc = traj3D, ori, pheight
+    
+
+    assert user.dtype == gray.dtype == depth.dtype == traj3D.dtype == ori.dtype == "uint8"
+    assert gray.shape == depth.shape
+    if not gray.shape[1] == skelet_feature.shape[0] == Targets.shape[0]:
+        print("too early movement or too late,skip one");
+        return None
+
+    # we don't need user info. anyway
+    video = empty((2,) + gray.shape, dtype="uint8")
+    video[0], video[1] = gray, depth
+
+    skeleton = np.array([[np.concatenate(x.getAllData()[joint]) for joint in x.getAllData().keys()] for x in [sample.getSkeleton(i) for i in range(gesture[1], gesture[2])]])
+    video = np.array([sample.getRGB(i) for i in range(gesture[1], gesture[2])])
+
+    return np.array([[gesture[1], gesture[2]]]), skeleton, skelet_feature[:skeleton.shape[0]], video, np.array(Targets.argmax(axis=1))[:skeleton.shape[0]]
+                
 
 def write_to_dataset(dataset, data, pos, axis=0):
     print(pos, pos + data.shape[axis])
     assert np.count_nonzero(dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))]) == 0
-    dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
+    if data.ndim == 1:
+        np.insert(dataset, data, pos)
+    else:
+        dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
 
 
 if __name__ == '__main__':
