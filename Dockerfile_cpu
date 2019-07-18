@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:latest-py3-jupyter
+FROM tensorflow/tensorflow:nightly-py3-jupyter
 
 ENV PATH="/root/.local/bin:${PATH}"
 RUN pip install --user pipenv

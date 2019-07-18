@@ -33,7 +33,7 @@ from functions.preproc_functions import *
 
 #data path and store path definition
 
-data="/home/tim/Documents/RISE19/data/Train"
+data=os.getcwd()
 
 # global variable definition
 store_result = True
@@ -62,14 +62,13 @@ STATE_NO = 6
 
 
 def main():
-    os.chdir(data)
-    samples = glob("*.zip")  # because zipped all the files already!
-    
-    #samples.sort()
+    samples = glob("./Train/*.zip")  # because zipped all the files already!
     print(len(samples), "samples found")
     #start preprocessing
     preprocess(samples, "training")
-#    preprocess(samples, "Validation")
+
+    samples = glob("./Test/*.zip")  # because zipped all the files already!
+    preprocess(samples, "validation")
 
 
 def preprocess(samples, set_label="training"):
@@ -83,13 +82,15 @@ def preprocess(samples, set_label="training"):
         # Iterate for each action in this sample
         frame_count += sample.getNumFrames()
 
+    print(gesture_count, frame_count)
+
     with h5py.File("./dataset.hdf5", "a") as f:
         grp = f.create_group(set_label)
         dst_range = grp.create_dataset("range", (gesture_count,2), compression="szip", dtype="i", chunks=True, shuffle=True, compression_opts=('nn', 20))
         dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
         dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
         dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
-        dst_label = grp.create_dataset("label", (gesture_count,), compression="szip", chunks=True, shuffle=True,compression_opts=('nn', 20))
+        dst_label = grp.create_dataset("label", (frame_count,), compression="szip", chunks=True, shuffle=True,compression_opts=('nn', 20))
 
         frame_count = 0
         gesture_count = 0
@@ -108,8 +109,6 @@ def preprocess(samples, set_label="training"):
             # Iterate for each action in this sample
             with Pool(cpu_count()) as p:
                 results = [x for x in p.starmap(computeData, ((gesture, os.path.join(data, file)) for gesture in gestures)) if x is not None]
-            print(len(list(zip(*results))))
-            print(len([np.concatenate(x) for x in zip(*results)]))
             range, skeleton, skelet_feature, video, labels = [np.concatenate(x) for x in zip(*results)]
             print(labels)
             write_to_dataset(dst_range, range+frame_count, gesture_count)
@@ -117,7 +116,7 @@ def preprocess(samples, set_label="training"):
             write_to_dataset(dst_skeleton_feature, skelet_feature, frame_count)
             write_to_dataset(dst_video, video, frame_count)
             write_to_dataset(dst_label, labels, frame_count)
-            gesture_count += labels.shape[0]
+            gesture_count += range.shape[0]
             frame_count += skeleton.shape[0]
             
             end_time = time.time()

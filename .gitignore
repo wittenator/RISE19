@@ -44,6 +44,7 @@ geckodriver.log
 
 #custom
 /data/Train/
-/data/Validation/
-/data/Data_processed/
+/data/Test/
+/data/dataset.*
 *.png
+models/

@@ -9,6 +9,9 @@ verify_ssl = true
 keras = "*"
 opencv-python = "*"
 pillow = "*"
+"h5py" = "*"
+pandas = "*"
+scikit-learn = "*"
 
 [requires]
 python_version = "3.6"
