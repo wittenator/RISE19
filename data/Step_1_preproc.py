@@ -86,11 +86,11 @@ def preprocess(samples, set_label="training"):
 
     with h5py.File("./dataset.hdf5", "a", libver='latest') as f:
         grp = f.create_group(set_label)
-        dst_range = grp.create_dataset("range", (gesture_count,2))
-        dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3))
-        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9))
-        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891))
-        dst_label = grp.create_dataset("label", (frame_count,))
+        dst_range = grp.create_dataset("range", (gesture_count,2), compression='lzf', shuffle=True)
+        dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3), compression='lzf', shuffle=True)
+        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9), compression='lzf', shuffle=True)
+        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression='lzf', shuffle=True)
+        dst_label = grp.create_dataset("label", (frame_count,), compression='lzf', shuffle=True)
         f.swmr_mode = True
 
         frame_count = 0
