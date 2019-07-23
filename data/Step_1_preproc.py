@@ -84,13 +84,14 @@ def preprocess(samples, set_label="training"):
 
     print(gesture_count, frame_count)
 
-    with h5py.File("./dataset.hdf5", "a") as f:
+    with h5py.File("./dataset.hdf5", "a", libver='latest') as f:
         grp = f.create_group(set_label)
-        dst_range = grp.create_dataset("range", (gesture_count,2), compression="szip", dtype="i", chunks=True, shuffle=True, compression_opts=('nn', 20))
-        dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
-        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
-        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891), compression="szip", chunks=True, shuffle=True, compression_opts=('nn', 20))
-        dst_label = grp.create_dataset("label", (frame_count,), compression="szip", chunks=True, shuffle=True,compression_opts=('nn', 20))
+        dst_range = grp.create_dataset("range", (gesture_count,2))
+        dst_video = grp.create_dataset("video", (frame_count, 480, 640, 3))
+        dst_skeleton = grp.create_dataset("skeleton", (frame_count, 20, 9))
+        dst_skeleton_feature = grp.create_dataset("skeleton_feature", (frame_count, 891))
+        dst_label = grp.create_dataset("label", (frame_count,))
+        f.swmr_mode = True
 
         frame_count = 0
         gesture_count = 0
@@ -109,6 +110,8 @@ def preprocess(samples, set_label="training"):
             # Iterate for each action in this sample
             with Pool(cpu_count()) as p:
                 results = [x for x in p.starmap(computeData, ((gesture, os.path.join(data, file)) for gesture in gestures)) if x is not None]
+            if not results:
+                continue
             range, skeleton, skelet_feature, video, labels = [np.concatenate(x) for x in zip(*results)]
             print(labels)
             write_to_dataset(dst_range, range+frame_count, gesture_count)
@@ -171,6 +174,7 @@ def write_to_dataset(dataset, data, pos, axis=0):
         np.insert(dataset, data, pos)
     else:
         dataset[tuple(slice(None) if not i == axis else slice(pos, pos + data.shape[axis]) for i,dim in enumerate(dataset.shape))] = data
+    dataset.flush()
 
 
 if __name__ == '__main__':
